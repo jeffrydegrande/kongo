@@ -57,10 +57,6 @@ func NewKong(kongUrl string) *Kong {
 	return &Kong{kongUrl}
 }
 
-func NewEndpoint(name string, path string, target_url string) *Endpoint {
-	return &Endpoint{Name: name, Path: path, TargetUrl: target_url}
-}
-
 func (kong *Kong) GetEndpoints() ([]Endpoint, error) {
 	url := fmt.Sprintf("%s/apis", kong.Url)
 
@@ -78,10 +74,32 @@ func (kong *Kong) GetEndpoints() ([]Endpoint, error) {
 	return result.Data, nil
 }
 
-func (kong *Kong) SetEndpoint(endpoint *Endpoint) error {
-	endpointUrl := fmt.Sprintf("%s/apis/%s", kong.Url, endpoint.Name)
-	fmt.Println(endpointUrl)
+func (kong *Kong) postEndpoint(endpoint *Endpoint) (int, error) {
+	endpointUrl := fmt.Sprintf("%s/apis", kong.Url)
+	data := url.Values{}
+	data.Set("strip_path", strconv.FormatBool(endpoint.StripPath))
+	data.Set("preserve_host", strconv.FormatBool(endpoint.PreserveHost))
+	data.Set("name", endpoint.Name)
+	data.Set("path", endpoint.Path)
+	data.Set("target_url", endpoint.TargetUrl)
 
+	client := &http.Client{}
+	r, _ := http.NewRequest("POST", endpointUrl, bytes.NewBufferString(data.Encode()))
+	r.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	r.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
+
+	resp, _ := client.Do(r)
+
+	defer resp.Body.Close()
+	_, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return -1, err
+	}
+	return resp.StatusCode, nil
+}
+
+func (kong *Kong) patchEndpoint(endpoint *Endpoint) (int, error) {
+	endpointUrl := fmt.Sprintf("%s/apis/%s", kong.Url, endpoint.Name)
 	data := url.Values{}
 	data.Set("strip_path", strconv.FormatBool(endpoint.StripPath))
 	data.Set("preserve_host", strconv.FormatBool(endpoint.PreserveHost))
@@ -95,15 +113,34 @@ func (kong *Kong) SetEndpoint(endpoint *Endpoint) error {
 	r.Header.Add("Content-Length", strconv.Itoa(len(data.Encode())))
 
 	resp, _ := client.Do(r)
-
 	defer resp.Body.Close()
-
 	_, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return -1, err
+	}
+	return resp.StatusCode, nil
+}
+
+func (kong *Kong) SetEndpoint(endpoint *Endpoint) error {
+	status, err := kong.patchEndpoint(endpoint)
+	if err != nil {
+		return err
+	}
+
+	if status >= 200 && status <= 300 {
+		return nil
+	}
+
+	status, err = kong.postEndpoint(endpoint)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func NewEndpoint(name string) *Endpoint {
+	return &Endpoint{Name: name, Path: fmt.Sprintf("/%s", name)}
 }
 
 func (kong *Kong) GetPlugins(endpointNameOrId string) ([]Plugin, error) {
