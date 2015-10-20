@@ -157,3 +157,40 @@ func (kong *Kong) GetPlugins(endpointNameOrId string) ([]Plugin, error) {
 	}
 	return result.Data, nil
 }
+
+func _doPluginRequest(method string, url string, body []byte) (int, error) {
+	client := &http.Client{}
+	r, _ := http.NewRequest(method, url, bytes.NewBufferString(string(body)))
+	r.Header.Add("Content-Type", "application/json")
+	r.Header.Add("Content-Length", strconv.Itoa(len(string(body))))
+
+	resp, _ := client.Do(r)
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return -1, err
+	}
+
+	// fmt.Println(string(body))
+	// fmt.Println(resp.StatusCode)
+	return resp.StatusCode, nil
+}
+
+func (kong *Kong) SetPlugin(endpointNameOrId string, plugin string, config map[string]interface{}) error {
+	pluginUrl := fmt.Sprintf("%s/apis/%s/plugins", kong.Url, endpointNameOrId)
+	jsonPluginConfig, err := json.Marshal(config)
+
+	status, err := _doPluginRequest("POST", pluginUrl, jsonPluginConfig)
+	if err != nil {
+		return err
+	}
+
+	if status < 400 {
+		return nil
+	}
+	fmt.Printf("Status was %d, will update instead\n", status)
+
+	status, err = _doPluginRequest("PATCH", pluginUrl, jsonPluginConfig)
+	fmt.Printf("Status was %d\n", status)
+	return err
+}
